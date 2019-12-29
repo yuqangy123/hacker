@@ -6,3 +6,5 @@
 *.tlog
 *.lastbuildstate
 *.ipch
+*.exe
+*.idb
