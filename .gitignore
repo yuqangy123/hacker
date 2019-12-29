@@ -1,1 +1,8 @@
 *.db
+*.log
+*.pdb
+*.ilk
+*.obj
+*.tlog
+*.lastbuildstate
+*.ipch
