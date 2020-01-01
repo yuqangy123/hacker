@@ -3,7 +3,6 @@
 #include <vector>
 #include <mutex>
 
-using namespace std;
 
 struct Client
 {
@@ -24,12 +23,12 @@ public:
 	void stopRec();
 
 protected:
-	void keepClient(Client& sClient);
+	void keepClient(Client* sClient);
 
 private:
 	bool m_terminal;
 	SOCKET m_slisten; //´´½¨¼àÌýÌ×½Ó×Ö
-	vector<Client> m_clients;
-	mutex m_io_mutex;
+	std::vector<Client*> m_clients;
+	std::mutex m_io_mutex;
 };
 
